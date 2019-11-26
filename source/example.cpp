@@ -16,6 +16,62 @@
 #include "tinyply.h"
 using namespace tinyply;
 
+#include <filesystem>
+namespace fs = std::experimental::filesystem;
+
+std::vector<std::string> iterate_directory(const fs::path & root, const std::string & extensionIncludingDot)
+{
+    std::vector<std::string> paths;
+
+    for (auto & entry : fs::recursive_directory_iterator(root))
+    {
+        const size_t root_len = root.string().length(), ext_len = entry.path().extension().string().length();
+        auto path = entry.path().string(), name = path.substr(root_len + 1, path.size() - root_len - ext_len - 1);
+
+        for (auto & chr : name) if (chr == '\\') chr = '/';
+  
+        if (entry.path().extension() == extensionIncludingDot)
+        {
+            paths.push_back(path);
+        }
+    }
+
+    return paths;
+};
+
+
+inline std::vector<uint8_t> read_file_binary(const std::string & pathToFile)
+{
+    std::ifstream file(pathToFile, std::ios::binary);
+    std::vector<uint8_t> fileBufferBytes;
+
+    if (file.is_open())
+    {
+        file.seekg(0, std::ios::end);
+        size_t sizeBytes = file.tellg();
+        file.seekg(0, std::ios::beg);
+        fileBufferBytes.resize(sizeBytes);
+        if (file.read((char*)fileBufferBytes.data(), sizeBytes)) return fileBufferBytes;
+    }
+    else throw std::runtime_error("could not open binary ifstream to path " + pathToFile);
+    return fileBufferBytes;
+}
+
+
+struct membuf : std::streambuf 
+{
+    membuf(char const* base, size_t size) 
+    {
+        char* p(const_cast<char*>(base));
+        this->setg(p, p, p + size);
+    }
+};
+
+struct imemstream : virtual membuf, std::istream 
+{
+    imemstream(char const* base, size_t size) : membuf(base, size), std::istream(static_cast<std::streambuf*>(this)) {}
+};
+
 class manual_timer
 {
     std::chrono::high_resolution_clock::time_point t0;
@@ -107,24 +163,28 @@ void write_ply_example(const std::string & filename)
 	cube_file.write(outstream_binary, true);
 }
 
-void read_ply_file(const std::string & filepath)
+float read_ply_file(const std::string & filepath)
 {
 	try
 	{
-		std::ifstream ss(filepath, std::ios::binary);
+        auto bytes = read_file_binary(filepath);
+        imemstream ss((char*)bytes.data(), bytes.size());
+
+		//std::ifstream ss(filepath, std::ios::binary);
+
 		if (ss.fail()) throw std::runtime_error("failed to open " + filepath);
 
 		PlyFile file;
 		file.parse_header(ss);
 
-		std::cout << "........................................................................\n";
-		for (auto c : file.get_comments()) std::cout << "Comment: " << c << std::endl;
-		for (auto e : file.get_elements())
-		{
-			std::cout << "element - " << e.name << " (" << e.size << ")" << std::endl;
-			for (auto p : e.properties) std::cout << "\tproperty - " << p.name << " (" << tinyply::PropertyTable[p.propertyType].str << ")" << std::endl;
-		}
-		std::cout << "........................................................................\n";
+		//std::cout << "........................................................................\n";
+		//for (auto c : file.get_comments()) std::cout << "Comment: " << c << std::endl;
+		//for (auto e : file.get_elements())
+		//{
+		//	std::cout << "element - " << e.name << " (" << e.size << ")" << std::endl;
+		//	for (auto p : e.properties) std::cout << "\tproperty - " << p.name << " (" << tinyply::PropertyTable[p.propertyType].str << ")" << std::endl;
+		//}
+		//std::cout << "........................................................................\n";
 
 		// Tinyply treats parsed data as untyped byte buffers. See below for examples.
 		std::shared_ptr<PlyData> vertices, normals, faces, texcoords;
@@ -135,15 +195,15 @@ void read_ply_file(const std::string & filepath)
 		try { vertices = file.request_properties_from_element("vertex", { "x", "y", "z" }); }
 		catch (const std::exception & e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
 
-		try { normals = file.request_properties_from_element("vertex", { "nx", "ny", "nz" }); }
-		catch (const std::exception & e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
+		//try { normals = file.request_properties_from_element("vertex", { "nx", "ny", "nz" }); }
+		//catch (const std::exception & e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
 
-		try { texcoords = file.request_properties_from_element("vertex", { "u", "v" }); }
-		catch (const std::exception & e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
+		//try { texcoords = file.request_properties_from_element("vertex", { "u", "v" }); }
+		//catch (const std::exception & e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
 
 		// Providing a list size hint (the last argument) is a 2x performance improvement. If you have 
 		// arbitrary ply files, it is best to leave this 0. 
-		try { faces = file.request_properties_from_element("face", { "vertex_indices" }, 3); }
+		try { faces = file.request_properties_from_element("face", { "vertex_indices" }, 0); }
 		catch (const std::exception & e) { std::cerr << "tinyply exception: " << e.what() << std::endl; }
 
 		manual_timer read_timer;
@@ -152,37 +212,52 @@ void read_ply_file(const std::string & filepath)
 		file.read(ss);
 		read_timer.stop();
 
-		std::cout << "Reading took " << read_timer.get() / 1000.f << " seconds." << std::endl;
-		if (vertices) std::cout << "\tRead " << vertices->count << " total vertices "<< std::endl;
-		if (normals) std::cout << "\tRead " << normals->count << " total vertex normals " << std::endl;
-		if (texcoords) std::cout << "\tRead " << texcoords->count << " total vertex texcoords " << std::endl;
-		if (faces) std::cout << "\tRead " << faces->count << " total faces (triangles) " << std::endl;
+		// std::cout << "Reading took " << read_timer.get() / 1000.f << " seconds." << std::endl;
+		// if (vertices) std::cout << "\tRead " << vertices->count << " total vertices "<< std::endl;
+		// if (normals) std::cout << "\tRead " << normals->count << " total vertex normals " << std::endl;
+		// if (texcoords) std::cout << "\tRead " << texcoords->count << " total vertex texcoords " << std::endl;
+		// if (faces) std::cout << "\tRead " << faces->count << " total faces (triangles) " << std::endl;
 
 		// type casting to your own native types - Option A
-		{
-			const size_t numVerticesBytes = vertices->buffer.size_bytes();
-			std::vector<float3> verts(vertices->count);
-			std::memcpy(verts.data(), vertices->buffer.get(), numVerticesBytes);
-		}
+		// {
+		// 	const size_t numVerticesBytes = vertices->buffer.size_bytes();
+		// 	std::vector<float3> verts(vertices->count);
+		// 	std::memcpy(verts.data(), vertices->buffer.get(), numVerticesBytes);
+		// }
+        // 
+		// // type casting to your own native types - Option B
+		// {
+		// 	std::vector<float3> verts_floats;
+		// 	std::vector<double3> verts_doubles;
+		// 	if (vertices->t == tinyply::Type::FLOAT32) { /* as floats ... */ }
+		// 	if (vertices->t == tinyply::Type::FLOAT64) { /* as doubles ... */ }
+		// }
 
-		// type casting to your own native types - Option B
-		{
-			std::vector<float3> verts_floats;
-			std::vector<double3> verts_doubles;
-			if (vertices->t == tinyply::Type::FLOAT32) { /* as floats ... */ }
-			if (vertices->t == tinyply::Type::FLOAT64) { /* as doubles ... */ }
-		}
+        return read_timer.get() / 1000.f;
 	}
 	catch (const std::exception & e)
 	{
 		std::cerr << "Caught tinyply exception: " << e.what() << std::endl;
 	}
+
+    return 0.f;
 }
 
 int main(int argc, char *argv[])
 {
-	write_ply_example("example_cube");
-	//read_ply_file("example_cube-ascii.ply");
+	//write_ply_example("example_cube");
+	//read_ply_file("lucy.ply");
 	//read_ply_file("example_cube-binary.ply");
-    return EXIT_SUCCESS;
+
+    float sum_timer = 0.f;
+
+    auto files = iterate_directory("../assets/pbrt/", ".ply");
+
+    for (auto & path : files)
+    {
+        sum_timer += read_ply_file(path);
+    }
+
+    std::cout << "timer! " << sum_timer << std::endl;
+     return EXIT_SUCCESS;
 }
