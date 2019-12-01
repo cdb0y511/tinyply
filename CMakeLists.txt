@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if (POLICY CMP0048)
+  # silence cmake warning if from a min-3.0-required parent dir
+  cmake_policy(SET CMP0048 NEW)
+endif()
+
 project(tinyply LANGUAGES CXX)
 set(PROJECT_VERSION 2.2)
 
