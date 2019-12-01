@@ -13,7 +13,10 @@ include_directories("${CMAKE_SOURCE_DIR}/source")
 set(CMAKE_DEBUG_POSTFIX "d")
 
 # Library
-set( SHARED_LIB false CACHE BOOL "Build as shared library")
+if (NOT SHARED_LIB)
+    set( SHARED_LIB false CACHE BOOL "Build as shared library")
+endif()
+
 if(${SHARED_LIB})
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
     add_library(tinyply SHARED source/tinyply.cpp source/tinyply.h)
