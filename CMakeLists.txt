@@ -14,7 +14,7 @@ set(CMAKE_DEBUG_POSTFIX "d")
 
 # Library
 if (NOT SHARED_LIB)
-    set( SHARED_LIB false CACHE BOOL "Build as shared library")
+    set( SHARED_LIB true CACHE BOOL "Build as shared library")
 endif()
 
 if(${SHARED_LIB})
